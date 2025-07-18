@@ -1,6 +1,4 @@
-// pages/api/generate.js
 
-// Разрешаем CORS для всех (для теста)
 const allowCors = fn => async (req, res) => {
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -76,12 +74,10 @@ const allowCors = fn => async (req, res) => {
       }
   
       if (contentType && contentType.startsWith('image/')) {
-        // Hugging Face может вернуть изображение напрямую
         const buffer = await response.arrayBuffer();
         const base64 = Buffer.from(buffer).toString('base64');
         return res.status(200).json({ imageUrl: `data:${contentType};base64,${base64}`, timeTaken, error: null });
       } else {
-        // Или JSON с url/base64
         const data = await response.json();
         return res.status(200).json({
           imageUrl: data.url || data.image || null,
