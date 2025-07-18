@@ -2,16 +2,16 @@
 
 // Разрешаем CORS для всех (для теста)
 const allowCors = fn => async (req, res) => {
-    res.setHeader('Access-Control-Allow-Credentials', true);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-    res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Content-Type, Authorization');
-    if (req.method === 'OPTIONS') {
-      res.status(200).end();
-      return;
-    }
-    return await fn(req, res);
-  };
+  res.setHeader('Access-Control-Allow-Credentials', true);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    res.status(200).send('OK');
+    return;
+  }
+  return await fn(req, res);
+};
   
   const HUGGINGFACE_API_URL = 'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1'; // Можно заменить на нужную модель
   
