@@ -15,7 +15,17 @@ const allowCors = fn => async (req, res) => {
   
   const HUGGINGFACE_API_URL = 'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1'; // Можно заменить на нужную модель
   
-  async function handler(req, res) {
+  export default async function handler(req, res) {
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+    res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Content-Type, Authorization');
+
+    if (req.method === 'OPTIONS') {
+      res.status(200).send('OK');
+      return;
+    }
+
     if (req.method !== 'POST') {
       return res.status(405).json({ error: 'Method not allowed' });
     }
@@ -83,5 +93,3 @@ const allowCors = fn => async (req, res) => {
       return res.status(500).json({ imageUrl: null, timeTaken: 0, error: error.message || 'Internal server error' });
     }
   }
-  
-  export default allowCors(handler);
