@@ -10,7 +10,7 @@ const allowCors = fn => async (req, res) => {
   return await fn(req, res);
 };
   
-  const HUGGINGFACE_API_URL = 'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1'; // Можно заменить на нужную модель
+  const HUGGINGFACE_API_URL = 'https://api-inference.huggingface.co/models/gpt2';
   
   async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
