@@ -15,7 +15,7 @@ export default async function handler(req) {
     return new Response(null, { headers, status: 204 });
   }
 
-  // Check method
+  // Validate method
   if (req.method !== 'POST') {
     return new Response(
       JSON.stringify({ error: 'Method not allowed' }),
@@ -42,7 +42,13 @@ export default async function handler(req) {
           'Authorization': `Bearer ${process.env.HF_TOKEN}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ inputs: prompt })
+        body: JSON.stringify({ 
+          inputs: prompt,
+          parameters: {
+            guidance_scale: 7.5,
+            num_inference_steps: 50
+          }
+        })
       }
     );
 
@@ -51,23 +57,32 @@ export default async function handler(req) {
       throw new Error(error.error || 'Generation failed');
     }
 
+    // Get image as buffer
     const imageBuffer = await hfResponse.arrayBuffer();
     const base64Image = Buffer.from(imageBuffer).toString('base64');
 
+    // Return properly formatted response
     return new Response(
       JSON.stringify({
         image: `data:image/png;base64,${base64Image}`,
         model: 'stabilityai/stable-diffusion-xl-base-1.0'
       }),
-      { headers, status: 200 }
+      { 
+        headers,
+        status: 200 
+      }
     );
 
   } catch (error) {
+    console.error('API error:', error);
     return new Response(
       JSON.stringify({ 
         error: error.message || 'Internal server error' 
       }),
-      { headers, status: 500 }
+      { 
+        headers,
+        status: 500 
+      }
     );
   }
 }
