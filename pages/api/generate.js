@@ -1,16 +1,15 @@
 export const config = {
   runtime: 'edge',
-  maxDuration: 60,
+  maxDuration: 60
 };
 
 export default async function handler(req) {
-  // Улучшенные CORS headers
+  // CORS headers
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Content-Type': 'application/json',
-    'Cache-Control': 'no-store, no-cache, must-revalidate'
+    'Content-Type': 'application/json'
   };
 
   // Handle OPTIONS preflight
@@ -27,10 +26,9 @@ export default async function handler(req) {
   }
 
   try {
-    const requestData = await req.json();
-    const { prompt, strength = 0.7, guidanceScale = 7.5, steps = 50 } = requestData;
+    const { prompt, image, strength = 0.7, guidanceScale = 7.5, steps = 50 } = await req.json();
     
-    // Валидация промпта
+    // Validate input
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
       return new Response(
         JSON.stringify({ error: 'Valid prompt is required' }),
@@ -38,18 +36,20 @@ export default async function handler(req) {
       );
     }
 
-    // Параметры для Hugging Face
+    // Prepare Hugging Face request
     const hfBody = {
-      inputs: prompt.trim(),
-      options: { wait_for_model: true },
+      inputs: image ? {
+        prompt: prompt.trim(),
+        image: image
+      } : prompt.trim(),
       parameters: {
+        strength: Math.min(Math.max(Number(strength), 0.1), 0.9),
         guidance_scale: Number(guidanceScale),
-        num_inference_steps: Number(steps),
-        ...(strength && { strength: Math.min(Math.max(Number(strength), 0.1), 0.9) })
+        num_inference_steps: Number(steps)
       }
     };
 
-    // Вызов HF API
+    // Call Hugging Face API
     const hfResponse = await fetch(
       'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0',
       {
@@ -62,24 +62,23 @@ export default async function handler(req) {
       }
     );
 
-    // Обработка ошибок HF
+    // Handle HF API errors
     if (!hfResponse.ok) {
       const error = await hfResponse.json().catch(() => ({}));
       const errorMsg = error.error || `HF API error (status ${hfResponse.status})`;
       throw new Error(errorMsg);
     }
 
-    // Получение и проверка изображения
+    // Process image
     const imageBuffer = await hfResponse.arrayBuffer();
     if (imageBuffer.byteLength > 10 * 1024 * 1024) {
       throw new Error('Generated image is too large (max 10MB)');
     }
 
-    // Конвертация в base64
     const base64Image = Buffer.from(imageBuffer).toString('base64');
     const imageUrl = `data:image/png;base64,${base64Image}`;
 
-    // Успешный ответ
+    // Successful response
     return new Response(
       JSON.stringify({
         image: imageUrl,
@@ -97,7 +96,7 @@ export default async function handler(req) {
       }),
       { 
         headers,
-        status: error.message.includes('HF API') ? 502 : 500 
+        status: 500 
       }
     );
   }
