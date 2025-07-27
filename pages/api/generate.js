@@ -31,7 +31,7 @@ async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { prompt, strength, guidanceScale, steps } = req.body;
+  const { prompt, guidanceScale, steps } = req.body;
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
   }
@@ -43,8 +43,23 @@ async function handler(req, res) {
 
   const start = Date.now();
   let lastError = null;
+  
   for (const model of MODELS) {
     try {
+      console.log(`Trying model: ${model}`);
+      
+      // Проверка статуса модели
+      const statusRes = await fetch(`https://api-inference.huggingface.co/status/${model.split('/')[1]}`, {
+        headers: { 'Authorization': `Bearer ${hfToken}` }
+      });
+      
+      if (!statusRes.ok) {
+        const statusError = await statusRes.json().catch(() => ({}));
+        lastError = statusError.error || 'Model not available';
+        console.error(`Model ${model} status check failed:`, lastError);
+        continue;
+      }
+
       const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
         method: 'POST',
         headers: {
@@ -55,7 +70,6 @@ async function handler(req, res) {
         body: JSON.stringify({
           inputs: prompt,
           parameters: {
-            strength: strength ?? 0.7,
             guidance_scale: guidanceScale ?? 10,
             num_inference_steps: steps ?? 50
           }
@@ -68,26 +82,36 @@ async function handler(req, res) {
       if (!response.ok) {
         const error = await response.json().catch(() => ({ error: 'Unknown error' }));
         lastError = error.error || 'Unknown error';
-        continue; // Пробуем следующую модель
+        console.error(`Model ${model} generation failed:`, lastError);
+        continue;
       }
 
       if (contentType && contentType.startsWith('image/')) {
         const buffer = await response.arrayBuffer();
         const base64 = Buffer.from(buffer).toString('base64');
-        return res.status(200).json({ imageUrl: `data:${contentType};base64,${base64}`, timeTaken, error: null });
+        return res.status(200).json({ 
+          imageUrl: `data:${contentType};base64,${base64}`, 
+          timeTaken, 
+          error: null 
+        });
       } else {
         const data = await response.json();
-        lastError = data.error || 'Unknown error';
+        lastError = data.error || 'Unknown response format';
+        console.error(`Model ${model} returned unexpected format:`, data);
         continue;
       }
     } catch (error) {
       lastError = error.message || 'Internal server error';
+      console.error(`Model ${model} error:`, error);
       continue;
     }
   }
-  // Если все модели не сработали
-  return res.status(500).json({ imageUrl: null, timeTaken: 0, error: lastError || 'All models failed' });
+  
+  return res.status(500).json({ 
+    imageUrl: null, 
+    timeTaken: (Date.now() - start) / 1000, 
+    error: lastError || 'All models failed' 
+  });
 }
 
 export default allowCors(handler);
-
