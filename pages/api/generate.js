@@ -5,13 +5,13 @@ export const config = {
 
 export default async function handler(req) {
   // Улучшенные CORS headers
-  const headers = new Headers({
+  const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS, GET',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Content-Type': 'application/json',
     'Vary': 'Origin'
-  });
+  };
 
   // Handle OPTIONS preflight
   if (req.method === 'OPTIONS') {
