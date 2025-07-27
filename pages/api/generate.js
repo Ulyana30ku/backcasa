@@ -4,13 +4,14 @@ export const config = {
 };
 
 export default async function handler(req) {
-  // CORS headers
-  const headers = {
+  // Улучшенные CORS headers
+  const headers = new Headers({
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Content-Type': 'application/json'
-  };
+    'Access-Control-Allow-Methods': 'POST, OPTIONS, GET',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+    'Content-Type': 'application/json',
+    'Vary': 'Origin'
+  });
 
   // Handle OPTIONS preflight
   if (req.method === 'OPTIONS') {
@@ -28,28 +29,14 @@ export default async function handler(req) {
   try {
     const { prompt, image, strength = 0.7, guidanceScale = 7.5, steps = 50 } = await req.json();
     
-    // Validate input
-    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+    if (!prompt?.trim()) {
       return new Response(
-        JSON.stringify({ error: 'Valid prompt is required' }),
+        JSON.stringify({ error: 'Prompt is required' }),
         { headers, status: 400 }
       );
     }
 
-    // Prepare Hugging Face request
-    const hfBody = {
-      inputs: image ? {
-        prompt: prompt.trim(),
-        image: image
-      } : prompt.trim(),
-      parameters: {
-        strength: Math.min(Math.max(Number(strength), 0.1), 0.9),
-        guidance_scale: Number(guidanceScale),
-        num_inference_steps: Number(steps)
-      }
-    };
-
-    // Call Hugging Face API
+    // Подготовка запроса к Hugging Face
     const hfResponse = await fetch(
       'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0',
       {
@@ -58,32 +45,32 @@ export default async function handler(req) {
           'Authorization': `Bearer ${process.env.HF_TOKEN}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(hfBody)
+        body: JSON.stringify({
+          inputs: image ? {
+            prompt: prompt.trim(),
+            image: image
+          } : prompt.trim(),
+          parameters: {
+            strength: Math.min(Math.max(Number(strength), 0.1), 0.9),
+            guidance_scale: Number(guidanceScale),
+            num_inference_steps: Number(steps)
+          }
+        })
       }
     );
 
-    // Handle HF API errors
     if (!hfResponse.ok) {
       const error = await hfResponse.json().catch(() => ({}));
-      const errorMsg = error.error || `HF API error (status ${hfResponse.status})`;
-      throw new Error(errorMsg);
+      throw new Error(error.error || 'Generation failed');
     }
 
-    // Process image
     const imageBuffer = await hfResponse.arrayBuffer();
-    if (imageBuffer.byteLength > 10 * 1024 * 1024) {
-      throw new Error('Generated image is too large (max 10MB)');
-    }
-
     const base64Image = Buffer.from(imageBuffer).toString('base64');
-    const imageUrl = `data:image/png;base64,${base64Image}`;
 
-    // Successful response
     return new Response(
       JSON.stringify({
-        image: imageUrl,
-        model: 'stabilityai/stable-diffusion-xl-base-1.0',
-        size: imageBuffer.byteLength
+        image: `data:image/png;base64,${base64Image}`,
+        model: 'stabilityai/stable-diffusion-xl-base-1.0'
       }),
       { headers, status: 200 }
     );
@@ -92,12 +79,10 @@ export default async function handler(req) {
     console.error('API error:', error);
     return new Response(
       JSON.stringify({ 
-        error: error.message || 'Internal server error'
+        error: error.message || 'Internal server error',
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
       }),
-      { 
-        headers,
-        status: 500 
-      }
+      { headers, status: 500 }
     );
   }
 }
