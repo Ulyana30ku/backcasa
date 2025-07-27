@@ -1,73 +1,98 @@
-const MODELS = [
-  "stabilityai/stable-diffusion-xl-base-1.0",
-  "dreamlike-art/dreamlike-photoreal-2.0",
-  "digiplay/juggernaut_final"
-];
+export const config = {
+  runtime: 'edge',
+};
 
-export default async function handler(req, res) {
-  try {
-    if (req.method !== 'POST') {
-      return res.status(405).json({ error: 'Method not allowed' });
-    }
+export default async function handler(req) {
+  // CORS headers
+  const headers = new Headers();
+  headers.set('Access-Control-Allow-Origin', '*');
+  headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-    const { prompt, guidanceScale = 10, steps = 50 } = req.body;
-    
-    if (!prompt) {
-      return res.status(400).json({ error: 'Prompt is required' });
-    }
-
-    const HF_TOKEN = process.env.HF_TOKEN;
-    if (!HF_TOKEN) {
-      return res.status(500).json({ error: 'Server configuration error' });
-    }
-
-    let result;
-    for (const model of MODELS) {
-      try {
-        const response = await fetch(
-          `https://api-inference.huggingface.co/models/${model}`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${HF_TOKEN}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              inputs: prompt,
-              parameters: {
-                guidance_scale: guidanceScale,
-                num_inference_steps: steps
-              }
-            })
-          }
-        );
-
-        if (response.ok) {
-          const buffer = await response.arrayBuffer();
-          result = {
-            image: Buffer.from(buffer).toString('base64'),
-            contentType: response.headers.get('content-type') || 'image/png',
-            model
-          };
-          break;
-        }
-      } catch (error) {
-        console.error(`Error with model ${model}:`, error);
-      }
-    }
-
-    if (!result) {
-      return res.status(500).json({ error: 'All models failed' });
-    }
-
-    // Возвращаем JSON с base64 без кодирования URL
-    return res.status(200).json({
-      image: `data:${result.contentType};base64,${result.image}`,
-      model: result.model
+  // Handle OPTIONS request
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { 
+      headers,
+      status: 204 
     });
+  }
+
+  // Check method
+  if (req.method !== 'POST') {
+    return new Response(
+      JSON.stringify({ error: 'Method not allowed' }),
+      { 
+        headers,
+        status: 405 
+      }
+    );
+  }
+
+  try {
+    const body = await req.json();
+    const { prompt } = body;
+
+    // Validation
+    if (!prompt || typeof prompt !== 'string') {
+      return new Response(
+        JSON.stringify({ error: 'Invalid prompt' }),
+        { 
+          headers,
+          status: 400 
+        }
+      );
+    }
+
+    // Call Hugging Face API
+    const hfResponse = await fetch(
+      'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0', 
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.HF_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+          inputs: prompt,
+          parameters: {
+            guidance_scale: 7.5,
+            num_inference_steps: 50
+          }
+        })
+      }
+    );
+
+    if (!hfResponse.ok) {
+      const error = await hfResponse.json().catch(() => ({}));
+      throw new Error(error.error || 'Hugging Face API error');
+    }
+
+    const imageBuffer = await hfResponse.arrayBuffer();
+    const base64Image = Buffer.from(imageBuffer).toString('base64');
+
+    return new Response(
+      JSON.stringify({
+        image: `data:image/png;base64,${base64Image}`,
+        model: 'stabilityai/stable-diffusion-xl-base-1.0'
+      }),
+      { 
+        headers,
+        status: 200 
+      }
+    );
 
   } catch (error) {
-    console.error('Server error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('API error:', error);
+    const errorMessage = error instanceof Error 
+      ? error.message 
+      : 'Internal server error';
+    
+    return new Response(
+      JSON.stringify({ error: errorMessage }),
+      { 
+        headers,
+        status: 500 
+      }
+    );
   }
 }
