@@ -1,16 +1,19 @@
 export const config = {
   runtime: 'edge',
+  maxDuration: 60,
 };
 
 export default async function handler(req) {
-  // CORS headers
-  const headers = new Headers();
-  headers.set('Access-Control-Allow-Origin', '*');
-  headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  headers.set('Content-Type', 'application/json');
+  // Улучшенные CORS headers
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-store, no-cache, must-revalidate'
+  };
 
-  // Handle OPTIONS
+  // Handle OPTIONS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers, status: 204 });
   }
@@ -24,16 +27,29 @@ export default async function handler(req) {
   }
 
   try {
-    const { prompt } = await req.json();
+    const requestData = await req.json();
+    const { prompt, strength = 0.7, guidanceScale = 7.5, steps = 50 } = requestData;
     
-    if (!prompt) {
+    // Валидация промпта
+    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
       return new Response(
-        JSON.stringify({ error: 'Prompt is required' }),
+        JSON.stringify({ error: 'Valid prompt is required' }),
         { headers, status: 400 }
       );
     }
 
-    // Call Hugging Face API
+    // Параметры для Hugging Face
+    const hfBody = {
+      inputs: prompt.trim(),
+      options: { wait_for_model: true },
+      parameters: {
+        guidance_scale: Number(guidanceScale),
+        num_inference_steps: Number(steps),
+        ...(strength && { strength: Math.min(Math.max(Number(strength), 0.1), 0.9) })
+      }
+    };
+
+    // Вызов HF API
     const hfResponse = await fetch(
       'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0',
       {
@@ -42,46 +58,46 @@ export default async function handler(req) {
           'Authorization': `Bearer ${process.env.HF_TOKEN}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ 
-          inputs: prompt,
-          parameters: {
-            guidance_scale: 7.5,
-            num_inference_steps: 50
-          }
-        })
+        body: JSON.stringify(hfBody)
       }
     );
 
+    // Обработка ошибок HF
     if (!hfResponse.ok) {
       const error = await hfResponse.json().catch(() => ({}));
-      throw new Error(error.error || 'Generation failed');
+      const errorMsg = error.error || `HF API error (status ${hfResponse.status})`;
+      throw new Error(errorMsg);
     }
 
-    // Get image as buffer
+    // Получение и проверка изображения
     const imageBuffer = await hfResponse.arrayBuffer();
-    const base64Image = Buffer.from(imageBuffer).toString('base64');
+    if (imageBuffer.byteLength > 10 * 1024 * 1024) {
+      throw new Error('Generated image is too large (max 10MB)');
+    }
 
-    // Return properly formatted response
+    // Конвертация в base64
+    const base64Image = Buffer.from(imageBuffer).toString('base64');
+    const imageUrl = `data:image/png;base64,${base64Image}`;
+
+    // Успешный ответ
     return new Response(
       JSON.stringify({
-        image: `data:image/png;base64,${base64Image}`,
-        model: 'stabilityai/stable-diffusion-xl-base-1.0'
+        image: imageUrl,
+        model: 'stabilityai/stable-diffusion-xl-base-1.0',
+        size: imageBuffer.byteLength
       }),
-      { 
-        headers,
-        status: 200 
-      }
+      { headers, status: 200 }
     );
 
   } catch (error) {
     console.error('API error:', error);
     return new Response(
       JSON.stringify({ 
-        error: error.message || 'Internal server error' 
+        error: error.message || 'Internal server error'
       }),
       { 
         headers,
-        status: 500 
+        status: error.message.includes('HF API') ? 502 : 500 
       }
     );
   }
