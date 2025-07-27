@@ -1,5 +1,5 @@
 const MODELS = [
-  "stabilityai/stable-diffusion-xl-1.0",
+  "stabilityai/stable-diffusion-xl-base-1.0",
   "dreamlike-art/dreamlike-photoreal-2.0",
   "digiplay/juggernaut_final"
 ];
@@ -16,120 +16,97 @@ const allowCors = fn => async (req, res) => {
   return await fn(req, res);
 };
 
-async function checkModelAvailability(model, hfToken) {
-  try {
-    const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-      headers: { 'Authorization': `Bearer ${hfToken}` }
-    });
-    return response.ok;
-  } catch (error) {
-    console.error(`Availability check failed for ${model}:`, error.message);
-    return false;
-  }
-}
-
 async function handler(req, res) {
   try {
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-    res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
     if (req.method === 'OPTIONS') {
-      return res.status(200).send('OK');
+      return res.status(200).end();
     }
 
     if (req.method !== 'POST') {
-      return res.status(405).json({ error: 'Method not allowed' });
+      return res.status(405).json({ error: 'Only POST method allowed' });
     }
 
     const { prompt, guidanceScale = 10, steps = 50 } = req.body;
+    
     if (!prompt || typeof prompt !== 'string') {
-      return res.status(400).json({ error: 'Valid prompt is required' });
+      return res.status(400).json({ error: 'Prompt must be a non-empty string' });
     }
 
-    const hfToken = process.env.HF_TOKEN;
-    if (!hfToken) {
-      return res.status(500).json({ error: 'Hugging Face token not configured' });
+    const HF_TOKEN = process.env.HF_TOKEN;
+    if (!HF_TOKEN) {
+      console.error('HF_TOKEN is not set in environment variables');
+      return res.status(500).json({ error: 'Server configuration error' });
     }
 
-    const start = Date.now();
+    const startTime = Date.now();
     const errors = [];
 
     for (const model of MODELS) {
       try {
         console.log(`Attempting model: ${model}`);
         
-        // Проверка доступности модели
-        const isAvailable = await checkModelAvailability(model, hfToken);
-        if (!isAvailable) {
-          const msg = `Model ${model} is currently unavailable`;
-          errors.push(msg);
-          console.warn(msg);
-          continue;
-        }
-
-        // Запрос генерации
-        const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${hfToken}`,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify({
-            inputs: prompt,
-            parameters: {
-              guidance_scale: Number(guidanceScale),
-              num_inference_steps: Number(steps)
-            }
-          }),
-          timeout: 30000 // 30 секунд таймаут
-        });
-
-        const contentType = response.headers.get('content-type');
-        const timeTaken = (Date.now() - start) / 1000;
+        const response = await fetch(
+          `https://api-inference.huggingface.co/models/${model}`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${HF_TOKEN}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              inputs: prompt,
+              parameters: {
+                guidance_scale: Number(guidanceScale),
+                num_inference_steps: Number(steps)
+              }
+            }),
+            timeout: 30000
+          }
+        );
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          const errorMsg = errorData.error || `HTTP ${response.status}`;
-          errors.push(`${model}: ${errorMsg}`);
-          console.error(`Model ${model} failed:`, errorMsg);
+          const error = await response.json().catch(() => ({}));
+          errors.push(`${model}: ${error.error || response.status}`);
+          console.error(`Model ${model} failed:`, error);
           continue;
         }
 
-        if (contentType?.startsWith('image/')) {
+        const contentType = response.headers.get('content-type');
+        if (contentType?.includes('image')) {
           const buffer = await response.arrayBuffer();
           return res.status(200).json({
             imageUrl: `data:${contentType};base64,${Buffer.from(buffer).toString('base64')}`,
-            timeTaken,
-            modelUsed: model,
-            error: null
+            timeTaken: (Date.now() - startTime) / 1000,
+            modelUsed: model
           });
         }
 
-        const data = await response.json();
+        const unexpectedResponse = await response.text();
         errors.push(`${model}: Unexpected response format`);
-        console.error(`Unexpected response from ${model}:`, data);
-
+        console.error(`Unexpected response from ${model}:`, unexpectedResponse.substring(0, 200));
       } catch (error) {
-        const errorMsg = error.message || 'Model processing error';
+        const errorMsg = error.message || 'Request failed';
         errors.push(`${model}: ${errorMsg}`);
         console.error(`Error with model ${model}:`, error);
       }
     }
 
     return res.status(500).json({
-      error: `All models failed: ${errors.join('; ')}`,
-      timeTaken: (Date.now() - start) / 1000,
-      availableModels: MODELS
+      error: `All models failed`,
+      details: errors,
+      timeTaken: (Date.now() - startTime) / 1000
     });
 
   } catch (error) {
     console.error('Server error:', error);
-    return res.status(500).json({
+    return res.status(500).json({ 
       error: 'Internal server error',
-      details: error.message
+      details: error.message 
     });
   }
 }
