@@ -1,28 +1,28 @@
-export const config = {
-  runtime: 'edge',
-  maxDuration: 60
-};
-
 export default async function handler(req) {
-  // Улучшенные CORS headers
-  const headers = {
+  // Базовые CORS headers
+  const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS, GET',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Content-Type': 'application/json',
-    'Vary': 'Origin'
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
   };
 
-  // Handle OPTIONS preflight
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers, status: 204 });
+    return new Response(null, { 
+      headers: corsHeaders,
+      status: 204 
+    });
   }
 
-  // Validate method
   if (req.method !== 'POST') {
     return new Response(
       JSON.stringify({ error: 'Method not allowed' }),
-      { headers, status: 405 }
+      { 
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        },
+        status: 405 
+      }
     );
   }
 
@@ -32,11 +32,17 @@ export default async function handler(req) {
     if (!prompt?.trim()) {
       return new Response(
         JSON.stringify({ error: 'Prompt is required' }),
-        { headers, status: 400 }
+        { 
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json'
+          },
+          status: 400 
+        }
       );
     }
 
-    // Подготовка запроса к Hugging Face
+    // Запрос к Hugging Face
     const hfResponse = await fetch(
       'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0',
       {
@@ -67,22 +73,34 @@ export default async function handler(req) {
     const imageBuffer = await hfResponse.arrayBuffer();
     const base64Image = Buffer.from(imageBuffer).toString('base64');
 
+    // Возвращаем ответ с ЧАСТИЧНЫМИ headers
     return new Response(
       JSON.stringify({
-        image: `data:image/png;base64,${base64Image}`,
+        image: base64Image, // Убрали префикс data:image/png;base64,
         model: 'stabilityai/stable-diffusion-xl-base-1.0'
       }),
-      { headers, status: 200 }
+      { 
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json' // Только необходимые headers
+        },
+        status: 200 
+      }
     );
 
   } catch (error) {
     console.error('API error:', error);
     return new Response(
       JSON.stringify({ 
-        error: error.message || 'Internal server error',
-        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        error: error.message || 'Internal server error'
       }),
-      { headers, status: 500 }
+      { 
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        },
+        status: 500 
+      }
     );
   }
 }
